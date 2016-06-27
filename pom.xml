@@ -147,7 +147,7 @@
 	<distributionManagement>
 		<repository>
 			<uniqueVersion>false</uniqueVersion>
-			<id>nexus-docker-release</id>
+			<id>nexus-docker-releases</id>
 			<name>Nexus Docker Releases Repository</name>
 			<url>http://docker-dev:8480/nexus/content/repositories/releases/</url>
 			<layout>default</layout>
