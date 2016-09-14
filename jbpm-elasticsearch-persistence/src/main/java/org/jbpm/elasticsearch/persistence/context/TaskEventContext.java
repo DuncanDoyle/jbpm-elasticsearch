@@ -1,4 +1,4 @@
-package org.jbpm.elasticsearch.persistence.listener;
+package org.jbpm.elasticsearch.persistence.context;
 
 import java.util.Date;
 import java.util.Set;
@@ -20,7 +20,7 @@ import java.util.Set;
  * 
  * @author <a href="mailto:duncan.doyle@redhat.com">Duncan Doyle</a>
  */
-public class IndexingTaskContext {
+public class TaskEventContext {
 	
 	public enum TaskState {
 		STARTING,
@@ -53,7 +53,7 @@ public class IndexingTaskContext {
 	private Date expirationTime;
 	
 	
-	public IndexingTaskContext(String deploymentUnit, String processId, long processInstanceId, long taskId) {
+	public TaskEventContext(String deploymentUnit, String processId, long processInstanceId, long taskId) {
 		this.deploymentUnit = deploymentUnit;
 		this.processId = processId;
 		this.processInstanceId = processInstanceId;

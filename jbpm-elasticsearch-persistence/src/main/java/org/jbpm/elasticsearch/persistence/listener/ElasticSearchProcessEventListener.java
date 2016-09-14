@@ -4,7 +4,9 @@ import org.drools.persistence.TransactionManager;
 import org.drools.persistence.TransactionSynchronization;
 import org.jbpm.elasticsearch.client.ElasticSearchClient;
 import org.jbpm.elasticsearch.client.RestEasyElasticSearchClient;
-import org.jbpm.elasticsearch.persistence.listener.IndexingProcessContext.ProcessState;
+import org.jbpm.elasticsearch.persistence.context.ProcessEventContext;
+import org.jbpm.elasticsearch.persistence.context.ProcessEventContext.ProcessState;
+import org.jbpm.elasticsearch.persistence.model.JbpmProcessDocument;
 import org.kie.api.event.process.DefaultProcessEventListener;
 import org.kie.api.event.process.ProcessCompletedEvent;
 import org.kie.api.event.process.ProcessEvent;
@@ -17,37 +19,39 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * <code>KIE</code> {@link ProcessEventListener}, which indexes process-variables in ElasticSearch using the {@link ElasticSearchClient}.
+ * <code>KIE</code> {@link ProcessEventListener}, which indexes process data in ElasticSearch using the {@link ElasticSearchClient}.
  * 
  * @author <a href="mailto:duncan.doyle@redhat.com">Duncan Doyle</a>
- *
  */
-public class IndexingProcessEventListener extends DefaultProcessEventListener {
+public class ElasticSearchProcessEventListener extends DefaultProcessEventListener {
 	
-	private static final Logger LOGGER = LoggerFactory.getLogger(IndexingProcessEventListener.class);
+	private static final Logger LOGGER = LoggerFactory.getLogger(ElasticSearchProcessEventListener.class);
 
-	private ThreadLocal<IndexingProcessContext> indexingContext = new ThreadLocal<>();
+	private final ElasticSearchClient esClient;
+	
+	private ThreadLocal<ProcessEventContext> processContext = new ThreadLocal<>();
 
-	// TODO Make the ES endpoint configurable on the constructor of this listener.
-	private ElasticSearchClient esClient = new RestEasyElasticSearchClient("http://elasticsearch:9200");
+	public ElasticSearchProcessEventListener(final String elasticSearchEndpointUrl) {
+		esClient =  new RestEasyElasticSearchClient(elasticSearchEndpointUrl);
+	}
 
 	@Override
 	public void afterProcessStarted(ProcessStartedEvent event) {
-		IndexingProcessContext context = getIndexingContext(event);
+		ProcessEventContext context = getProcessContext(event);
 		context.setIndexingProcessState(ProcessState.STARTING);
 		context.setProcessState(getProcessState(event));
 	}
 
 	@Override
 	public void afterProcessCompleted(ProcessCompletedEvent event) {
-		IndexingProcessContext context = getIndexingContext(event);
+		ProcessEventContext context = getProcessContext(event);
 		context.setIndexingProcessState(ProcessState.COMPLETING);
 		context.setProcessState(getProcessState(event));
 	}
 
 	@Override
 	public void afterVariableChanged(ProcessVariableChangedEvent event) {
-		IndexingProcessContext context = getIndexingContext(event);
+		ProcessEventContext context = getProcessContext(event);
 		context.changeVariable(event.getVariableId(), event.getNewValue());
 		context.setProcessState(getProcessState(event));
 	}
@@ -78,8 +82,8 @@ public class IndexingProcessEventListener extends DefaultProcessEventListener {
 	
 
 	// We don't need to synchronize as we're working on a threadlocal.
-	private IndexingProcessContext getIndexingContext(ProcessEvent processEvent) {
-		IndexingProcessContext context = indexingContext.get();
+	private ProcessEventContext getProcessContext(ProcessEvent processEvent) {
+		ProcessEventContext context = processContext.get();
 		if (context == null) {
 			// Register a transaction synchronization to index the variables on a TX commit.
 			registerTransactionSynchronization(processEvent);
@@ -89,8 +93,8 @@ public class IndexingProcessEventListener extends DefaultProcessEventListener {
 			LOGGER.debug("Building new IndexingContext for process-id: " + processInstanceId);
 			String deploymentUnit = (String) processEvent.getKieRuntime().getEnvironment().get("deploymentId"); 
 			String processId = processEvent.getProcessInstance().getProcessId();
-			context = new IndexingProcessContext(deploymentUnit, processId, processInstanceId);
-			indexingContext.set(context);
+			context = new ProcessEventContext(deploymentUnit, processId, processInstanceId);
+			processContext.set(context);
 		}
 		return context;
 	}
@@ -118,34 +122,33 @@ public class IndexingProcessEventListener extends DefaultProcessEventListener {
 
 		@Override
 		public void beforeCompletion() {
-			// TODO: Check whether we need to do something here. Currently I think we don't have to do anything here.
+			// TODO: Should we do something here?
 		}
 
 		@Override
 		public void afterCompletion(int status) {
-			// Build up the JSON document.
 			LOGGER.debug("Indexing process after TX completion.");
 			try {
 				switch (status) {
 				case TransactionManager.STATUS_COMMITTED:
-					IndexingProcessContext context = IndexingProcessEventListener.this.indexingContext.get();
+					ProcessEventContext context = ElasticSearchProcessEventListener.this.processContext.get();
 					if (context != null) {
-						IndexingProcessDocument indexingDocument = new IndexingProcessDocument(context);
-						String jsonIndexingDocument = indexingDocument.toJsonString();
-						String indexId = indexingDocument.getDeploymentUnit() + "_" + indexingDocument.getProcessId() + "_" + indexingDocument.getProcessInstanceId();
-						LOGGER.debug("Indexing Document: " + jsonIndexingDocument);
+						JbpmProcessDocument processDocument = new JbpmProcessDocument(context);
+						String jsonProcessDocument = processDocument.toJsonString();
+						String processDocumentId = processDocument.getDeploymentUnit() + "_" + processDocument.getProcessId() + "_" + processDocument.getProcessInstanceId();
+						LOGGER.debug("Indexing Document: " + jsonProcessDocument);
 						
 						switch (context.getIndexingProcessState()) {
 						case STARTING:
-							esClient.indexProcessData(indexId, jsonIndexingDocument);
+							esClient.indexProcessData(processDocumentId, jsonProcessDocument);
 							break;
 						case ACTIVE:
-							esClient.updateProcessData(indexId, jsonIndexingDocument);
+							esClient.updateProcessData(processDocumentId, jsonProcessDocument);
 							break;
 						case COMPLETING:
 							// esProducer.delete
 							// TODO: Should we update or remove here? I.e. do we want to maintain old processes in Elastic?
-							esClient.updateProcessData(indexId, jsonIndexingDocument);
+							esClient.updateProcessData(processDocumentId, jsonProcessDocument);
 							break;
 						default:
 							String message = "Unexpected process state.";
@@ -164,9 +167,10 @@ public class IndexingProcessEventListener extends DefaultProcessEventListener {
 				}
 			} finally {
 				// Reset the ThreadLocal.
-				indexingContext.set(null);
+				processContext.set(null);
 			}
 		}
 	}
+	
 
 }

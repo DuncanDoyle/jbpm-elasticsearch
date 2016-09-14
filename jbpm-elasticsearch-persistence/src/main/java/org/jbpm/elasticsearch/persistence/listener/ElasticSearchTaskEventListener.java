@@ -11,7 +11,9 @@ import org.drools.persistence.TransactionManager;
 import org.drools.persistence.TransactionSynchronization;
 import org.jbpm.elasticsearch.client.ElasticSearchClient;
 import org.jbpm.elasticsearch.client.RestEasyElasticSearchClient;
-import org.jbpm.elasticsearch.persistence.listener.IndexingTaskContext.TaskState;
+import org.jbpm.elasticsearch.persistence.context.TaskEventContext;
+import org.jbpm.elasticsearch.persistence.context.TaskEventContext.TaskState;
+import org.jbpm.elasticsearch.persistence.model.JbpmTaskDocument;
 import org.jbpm.services.task.events.DefaultTaskEventListener;
 import org.kie.api.event.process.ProcessEventListener;
 import org.kie.api.runtime.EnvironmentName;
@@ -22,46 +24,49 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * <code>KIE</code> {@link ProcessEventListener}, which indexes human-task-variables in ElasticSearch using the {@link ElasticSearchClient}.
+ * <code>KIE</code> {@link ProcessEventListener}, which indexes human-task data in ElasticSearch using the {@link ElasticSearchClient}.
  * 
  * @author <a href="mailto:duncan.doyle@redhat.com">Duncan Doyle</a>
  */
-public class IndexingTaskEventListener extends DefaultTaskEventListener {
+public class ElasticSearchTaskEventListener extends DefaultTaskEventListener {
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(IndexingTaskEventListener.class);
+	private static final Logger LOGGER = LoggerFactory.getLogger(ElasticSearchTaskEventListener.class);
 
+	private final ElasticSearchClient esClient;
+	
 	// We use a Map of IndexTaskContexts as multiple tasks can be created in a single transaction.
-	private ThreadLocal<Map<String, IndexingTaskContext>> indexingContext = new ThreadLocal<>();
+	private ThreadLocal<Map<String, TaskEventContext>> taskContext = new ThreadLocal<>();
 
-	// TODO Make the ES endpoint configurable on the constructor of this listener.
-	private ElasticSearchClient esClient = new RestEasyElasticSearchClient("http://elasticsearch:9200");
+	public ElasticSearchTaskEventListener(final String elasticSearchEndpointUrl) {
+		esClient = new RestEasyElasticSearchClient(elasticSearchEndpointUrl);
+	}
 
 	@Override
 	public void afterTaskAddedEvent(TaskEvent event) {
-		IndexingTaskContext context = getIndexingContext(event);
+		TaskEventContext context = getTaskContext(event);
 		context.setIndexingTaskState(TaskState.STARTING);
 		setTaskIndexingData(event, context);
 	}
 
 	@Override
 	public void afterTaskClaimedEvent(TaskEvent event) {
-		IndexingTaskContext context = getIndexingContext(event);
+		TaskEventContext context = getTaskContext(event);
 		setTaskIndexingData(event, context);
 	}
 
 	@Override
 	public void afterTaskCompletedEvent(TaskEvent event) {
-		IndexingTaskContext context = getIndexingContext(event);
+		TaskEventContext context = getTaskContext(event);
 		setTaskIndexingData(event, context);
 	}
 
 	@Override
 	public void afterTaskReleasedEvent(TaskEvent event) {
-		IndexingTaskContext context = getIndexingContext(event);
+		TaskEventContext context = getTaskContext(event);
 		setTaskIndexingData(event, context);
 	}
 
-	private void setTaskIndexingData(TaskEvent event, IndexingTaskContext context) {
+	private void setTaskIndexingData(TaskEvent event, TaskEventContext context) {
 		context.setTaskStatus(event.getTask().getTaskData().getStatus().toString());
 		context.setTaskName(event.getTask().getName());
 		Set<String> potentialOwners = new HashSet<>();
@@ -91,24 +96,24 @@ public class IndexingTaskEventListener extends DefaultTaskEventListener {
 	}
 
 	// We don't need to synchronize as we're working on a threadlocal.
-	private IndexingTaskContext getIndexingContext(TaskEvent taskEvent) {
+	private TaskEventContext getTaskContext(TaskEvent taskEvent) {
 		long taskId = taskEvent.getTask().getId();
-		Map<String, IndexingTaskContext> contexts = indexingContext.get();
+		Map<String, TaskEventContext> contexts = taskContext.get();
 		if (contexts == null) {
 			// Register a transaction synchronization to index the variables on a TX commit.
 			registerTransactionSynchronization(taskEvent);
 
 			contexts = new HashMap<>();
-			indexingContext.set(contexts);
+			taskContext.set(contexts);
 		}
-		IndexingTaskContext context = contexts.get(Long.toString(taskId));
+		TaskEventContext context = contexts.get(Long.toString(taskId));
 		if (context == null) {
 			// Create a new context.
 			long processInstanceId = taskEvent.getTask().getTaskData().getProcessInstanceId();
 			LOGGER.debug("Building new IndexingTaskContext for process-id: '" + processInstanceId + "' and task-id '" + taskId + "'.");
 			String deploymentUnit = (String) taskEvent.getTask().getTaskData().getDeploymentId();
 			String processId = taskEvent.getTask().getTaskData().getProcessId();
-			context = new IndexingTaskContext(deploymentUnit, processId, processInstanceId, taskId);
+			context = new TaskEventContext(deploymentUnit, processId, processInstanceId, taskId);
 			contexts.put(Long.toString(taskId), context);
 		}
 		return context;
@@ -137,40 +142,39 @@ public class IndexingTaskEventListener extends DefaultTaskEventListener {
 
 		@Override
 		public void beforeCompletion() {
-			// TODO: Check whether we need to do something here. Currently I think we don't have to do anything here.
+			// TODO: Should we do something here?
 		}
 
 		@Override
 		public void afterCompletion(int status) {
-			// Build up the JSON document.
 			LOGGER.debug("Indexing process after TX completion.");
 			try {
 				switch (status) {
 				case TransactionManager.STATUS_COMMITTED:
 					// Loop through all contexts and write to ElasticSearch for each task.
-					Map<String, IndexingTaskContext> contexts = IndexingTaskEventListener.this.indexingContext.get();
+					Map<String, TaskEventContext> contexts = ElasticSearchTaskEventListener.this.taskContext.get();
 					if (contexts != null) {
-						Collection<IndexingTaskContext> contextValues = contexts.values();
+						Collection<TaskEventContext> contextValues = contexts.values();
 
-						for (IndexingTaskContext nextContext : contextValues) {
+						for (TaskEventContext nextContext : contextValues) {
 
-							IndexingTaskDocument indexingDocument = new IndexingTaskDocument(nextContext);
-							String jsonIndexingDocument = indexingDocument.toJsonString();
-							String indexId = indexingDocument.getDeploymentUnit() + "_" + indexingDocument.getProcessId() + "_"
-									+ indexingDocument.getProcessInstanceId() + "_" + indexingDocument.getTaskId();
+							JbpmTaskDocument jbpmTaskDocument = new JbpmTaskDocument(nextContext);
+							String jsonIndexingDocument = jbpmTaskDocument.toJsonString();
+							String taskDocumentId = jbpmTaskDocument.getDeploymentUnit() + "_" + jbpmTaskDocument.getProcessId() + "_"
+									+ jbpmTaskDocument.getProcessInstanceId() + "_" + jbpmTaskDocument.getTaskId();
 							LOGGER.debug("Indexing Document: " + jsonIndexingDocument);
 
 							switch (nextContext.getIndexingTaskState()) {
 							case STARTING:
-								esClient.indexTaskData(indexId, jsonIndexingDocument);
+								esClient.indexTaskData(taskDocumentId, jsonIndexingDocument);
 								break;
 							case ACTIVE:
-								esClient.updateTaskData(indexId, jsonIndexingDocument);
+								esClient.updateTaskData(taskDocumentId, jsonIndexingDocument);
 								break;
 							case COMPLETING:
 								// esProducer.delete
 								// TODO: Should we update or remove here? I.e. do we want to maintain old processes in Elastic?
-								esClient.updateTaskData(indexId, jsonIndexingDocument);
+								esClient.updateTaskData(taskDocumentId, jsonIndexingDocument);
 								break;
 							default:
 								String message = "Unexpected process state.";
@@ -190,7 +194,7 @@ public class IndexingTaskEventListener extends DefaultTaskEventListener {
 				}
 			} finally {
 				// Reset the ThreadLocal.
-				indexingContext.set(null);
+				taskContext.set(null);
 			}
 		}
 	}

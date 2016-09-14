@@ -1,4 +1,4 @@
-package org.jbpm.elasticsearch.persistence.listener;
+package org.jbpm.elasticsearch.persistence.model;
 
 import java.io.IOException;
 import java.util.Date;
@@ -6,17 +6,18 @@ import java.util.Set;
 
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.map.annotate.JsonSerialize.Inclusion;
+import org.jbpm.elasticsearch.persistence.context.TaskEventContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Java representation of our JSON human-task data we want to index for search.
+ * Java representation of the JSON human-task data.
  * 
  * @author <a href="mailto:duncan.doyle@redhat.com">Duncan Doyle</a>
  */
-public class IndexingTaskDocument {
+public class JbpmTaskDocument {
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(IndexingTaskDocument.class);
+	private static final Logger LOGGER = LoggerFactory.getLogger(JbpmTaskDocument.class);
 	
 	private String deploymentUnit;
 
@@ -42,7 +43,7 @@ public class IndexingTaskDocument {
 	
 	private ObjectMapper jsonObjectMapper = new ObjectMapper().setSerializationInclusion(Inclusion.NON_EMPTY);
 	
-	public IndexingTaskDocument(IndexingTaskContext context) {
+	public JbpmTaskDocument(TaskEventContext context) {
 		this.deploymentUnit = context.getDeploymentUnit();
 		this.processId = context.getProcessId();
 		this.processInstanceId = context.getProcessInstanceId();

@@ -1,4 +1,4 @@
-package org.jbpm.elasticsearch.persistence.listener;
+package org.jbpm.elasticsearch.persistence.context;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -19,7 +19,7 @@ import java.util.Map;
  * 
  * @author <a href="mailto:duncan.doyle@redhat.com">Duncan Doyle</a>
  */
-public class IndexingProcessContext {
+public class ProcessEventContext {
 
 	public enum ProcessState {
 		STARTING, ACTIVE, COMPLETING
@@ -38,7 +38,7 @@ public class IndexingProcessContext {
 
 	private Map<String, Object> changedVariables = new HashMap<>();
 
-	public IndexingProcessContext(String deploymentUnit, String processId, long processInstanceId) {
+	public ProcessEventContext(String deploymentUnit, String processId, long processInstanceId) {
 		this.deploymentUnit = deploymentUnit;
 		this.processId = processId;
 		this.processInstanceId = processInstanceId;

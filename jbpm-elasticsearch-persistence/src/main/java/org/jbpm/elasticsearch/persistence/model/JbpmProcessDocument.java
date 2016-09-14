@@ -1,21 +1,22 @@
-package org.jbpm.elasticsearch.persistence.listener;
+package org.jbpm.elasticsearch.persistence.model;
 
 import java.io.IOException;
 import java.util.Map;
 
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.map.annotate.JsonSerialize.Inclusion;
+import org.jbpm.elasticsearch.persistence.context.ProcessEventContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Java representation of our JSON Process data we want to index for search.
+ * Java representation of the JSON Process data.
  * 
  * @author <a href="mailto:duncan.doyle@redhat.com">Duncan Doyle</a>
  */
-public class IndexingProcessDocument {
+public class JbpmProcessDocument {
 	
-	private static final Logger LOGGER = LoggerFactory.getLogger(IndexingProcessDocument.class);
+	private static final Logger LOGGER = LoggerFactory.getLogger(JbpmProcessDocument.class);
 	
 	private String deploymentUnit;
 	
@@ -29,7 +30,7 @@ public class IndexingProcessDocument {
 	
 	private ObjectMapper jsonObjectMapper = new ObjectMapper().setSerializationInclusion(Inclusion.NON_EMPTY);
 	
-	public IndexingProcessDocument(IndexingProcessContext context) {
+	public JbpmProcessDocument(ProcessEventContext context) {
 		this.deploymentUnit = context.getDeploymentUnit();
 		this.processId = context.getProcessId();
 		this.processInstanceId = context.getProcessInstanceId();
