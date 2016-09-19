@@ -164,6 +164,7 @@ public class ElasticSeachProcessEventListenerTest {
 		assertThat(processContext.getProcessId(), is("testProcessId"));
 		assertThat(processContext.getDeploymentUnit(), is("testDeploymentId"));
 		assertThat(processContext.getChangedVariables().get("testVariableId"), is("newTestValue"));
+		assertThat(processContext.getIndexingProcessState(), is(ProcessState.ACTIVE));
 
 		// Assert that the TransactionSynchronization got registered with the TM.
 		verify(tmManager, times(1)).registerTransactionSynchronization(anyObject());
@@ -218,6 +219,7 @@ public class ElasticSeachProcessEventListenerTest {
 		// Context should have both the info from the afterProcessStartedEvent and the afterVariableChangedEvent.
 		assertThat(processContext.getProcessId(), is("testProcesId"));
 		assertThat(processContext.getChangedVariables().get("testVariableId"), is("newTestValue"));
+		assertThat(processContext.getIndexingProcessState(), is(ProcessState.STARTING));
 	}
 
 	@Test
