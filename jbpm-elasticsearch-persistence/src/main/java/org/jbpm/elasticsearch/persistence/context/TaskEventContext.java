@@ -38,7 +38,7 @@ public class TaskEventContext {
 	
 	private String taskStatus;
 
-	private TaskState indexingTaskState = TaskState.ACTIVE;
+	private TaskState taskState = TaskState.ACTIVE;
 	
 	private String taskName;
 	
@@ -100,12 +100,12 @@ public class TaskEventContext {
 		this.taskStatus = taskStatus;
 	}
 
-	public TaskState getIndexingTaskState() {
-		return indexingTaskState;
+	public TaskState getTaskState() {
+		return taskState;
 	}
 
-	public void setIndexingTaskState(TaskState indexingTaskState) {
-		this.indexingTaskState = indexingTaskState;
+	public void setTaskState(TaskState taskState) {
+		this.taskState = taskState;
 	}
 
 	public String getTaskName() {
